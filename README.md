@@ -198,6 +198,9 @@ Security
 
 - No default secrets: compose fails if the required passwords are missing. The
   development template uses public passwords; never use it on a server.
+- PHP errors are never shown to visitors (`display_errors` off unless
+  `PHP_DISPLAY_ERRORS=On`, only in the development template); they go to
+  `docker compose logs`.
 - Production defaults: debug off, back office in a custom directory, the
   `install` directory removed, PHP version not exposed, source directories,
   templates, logs, dotfiles and repository files blocked, no PHP execution in
