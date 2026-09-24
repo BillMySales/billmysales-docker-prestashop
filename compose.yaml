@@ -1,0 +1,247 @@
+# PrestaShop stack: Caddy + PrestaShop (PHP-FPM, own image) + MariaDB, with a
+# setup job and optional backups and Mailpit.
+#
+# Quick start (development):
+#   cp .env.dev.example .env
+#   docker compose up -d
+#   docker compose logs -f setup   # wait for "==> Done"
+#
+# Production: start from .env.prod.example instead. See README.md.
+#
+# Required variables have no default: compose refuses to start without them.
+
+name: ${COMPOSE_PROJECT_NAME:-prestashop}
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: ${LOG_MAX_SIZE:-10m}
+    max-file: "${LOG_MAX_FILE:-3}"
+
+# PrestaShop image, built from image/Dockerfile (php:<ver>-fpm-alpine + the
+# official Classic distribution). Used by the app, setup and console services.
+x-ps-image: &ps-image
+  image: ${PS_IMAGE:-prestashop-fpm}:${PS_VERSION:-9.1.5-5.0}-php${PHP_VERSION:-8.5}
+  build:
+    context: ./image
+    args:
+      PHP_VERSION: ${PHP_VERSION:-8.5}
+      PS_VERSION: ${PS_VERSION:-9.1.5-5.0}
+      # Checksum of the default version; set it for another version (or empty to skip).
+      PS_SHA256: ${PS_SHA256-37140cb77c03acf61b832f76893cd8fe1e304b0fc14fa5485cfea4a7bfaf3a72}
+
+# Environment shared by PHP-FPM, setup and console.
+x-ps-env: &ps-env
+  PS_URL: ${PS_URL:?Set PS_URL in .env (e.g. https://shop.example.com)}
+  PS_FOLDER_ADMIN: ${PS_FOLDER_ADMIN:?Set PS_FOLDER_ADMIN in .env (back office directory name)}
+  PS_DEV_MODE: ${PS_DEV_MODE:-0}
+  PHP_MEMORY_LIMIT: ${PHP_MEMORY_LIMIT:-512M}
+  PHP_MAX_EXECUTION_TIME: ${PHP_MAX_EXECUTION_TIME:-300}
+  UPLOAD_MAX_SIZE: ${UPLOAD_MAX_SIZE:-64M}
+
+# Files mounted in PHP-FPM, setup and console.
+x-ps-volumes: &ps-volumes
+  - ps_data:/var/www/html
+  - ./config/php/php.ini:/usr/local/etc/php/conf.d/zz-stack.ini:ro
+  - ./config/prestashop:/usr/local/share/stack/prestashop:ro
+  - ./scripts:/usr/local/share/stack/scripts:ro
+
+services:
+  db:
+    image: mariadb:${MARIADB_VERSION:-12.3}
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      MARIADB_DATABASE: ${DB_NAME:-prestashop}
+      MARIADB_USER: ${DB_USER:-prestashop}
+      MARIADB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?Set DB_ROOT_PASSWORD in .env}
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: ${DB_MEMORY_LIMIT:-1g}
+
+  # PHP-FPM with PrestaShop. Not published; Caddy talks to it on port 9000.
+  prestashop:
+    <<: *ps-image
+    restart: unless-stopped
+    logging: *logging
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      <<: *ps-env
+      PHP_FPM_MAX_CHILDREN: ${PHP_FPM_MAX_CHILDREN:-10}
+      PHP_FPM_START_SERVERS: ${PHP_FPM_START_SERVERS:-2}
+      PHP_FPM_MIN_SPARE_SERVERS: ${PHP_FPM_MIN_SPARE_SERVERS:-1}
+      PHP_FPM_MAX_SPARE_SERVERS: ${PHP_FPM_MAX_SPARE_SERVERS:-4}
+      PHP_FPM_MAX_REQUESTS: ${PHP_FPM_MAX_REQUESTS:-500}
+    # Lets PrestaShop reach services on the host (e.g. an app running locally)
+    # at http://host.docker.internal:<port>, also on Linux.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ps_data:/var/www/html
+      - ./config/php/php.ini:/usr/local/etc/php/conf.d/zz-stack.ini:ro
+      - ./config/php/fpm-pool.conf:/usr/local/etc/php-fpm.d/zz-stack.conf:ro
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(@fsockopen('127.0.0.1', 9000) ? 0 : 1);"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: ${PS_MEMORY_LIMIT:-1g}
+
+  caddy:
+    image: caddy:${CADDY_VERSION:-2.11}-alpine
+    restart: unless-stopped
+    logging: *logging
+    depends_on:
+      prestashop:
+        condition: service_healthy
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+      UPLOAD_MAX_SIZE: ${UPLOAD_MAX_SIZE:-64M}
+      PS_FOLDER_ADMIN: ${PS_FOLDER_ADMIN:?Set PS_FOLDER_ADMIN in .env (back office directory name)}
+    ports:
+      - "${HTTP_BIND:-127.0.0.1}:${HTTP_PORT:-80}:80"
+      - "${HTTP_BIND:-127.0.0.1}:${HTTPS_PORT:-443}:443"
+      - "${HTTP_BIND:-127.0.0.1}:${HTTPS_PORT:-443}:443/udp"
+    volumes:
+      # Read-only: Caddy only serves static files and forwards PHP to FPM.
+      - ps_data:/var/www/html:ro
+      - ./config/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # TLS certificates and keys (keep them: ACME rate limits).
+      - caddy_data:/data
+      - caddy_config:/config
+    healthcheck:
+      # Internal :8080 site: any 2xx/3xx means Caddy + PHP + PrestaShop answer
+      # (the shop redirects to its canonical domain, and to the installer
+      # before setup has run).
+      test: ["CMD-SHELL", "curl -so /dev/null -w '%{http_code}' http://localhost:8080/ | grep -qE '^[23]'"]
+      interval: 5s
+      timeout: 10s
+      retries: 60
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: ${CADDY_MEMORY_LIMIT:-256m}
+
+  # One-shot job: copies PrestaShop to the volume, installs it (no demo data)
+  # and applies domain/SSL/SMTP from the environment. Safe to repeat; runs on
+  # every `up`. Starts as root to fix ownership, runs PHP as www-data (82).
+  setup:
+    <<: *ps-image
+    user: root
+    logging: *logging
+    depends_on:
+      prestashop:
+        condition: service_healthy
+    environment:
+      <<: *ps-env
+      DB_HOST: db:3306
+      DB_NAME: ${DB_NAME:-prestashop}
+      DB_USER: ${DB_USER:-prestashop}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      PS_SHOP_NAME: ${PS_SHOP_NAME:-PrestaShop}
+      PS_LANGUAGE: ${PS_LANGUAGE:-es}
+      PS_COUNTRY: ${PS_COUNTRY:-cl}
+      PS_TIMEZONE: ${PS_TIMEZONE:-America/Santiago}
+      PS_ADMIN_FIRSTNAME: ${PS_ADMIN_FIRSTNAME:-Admin}
+      PS_ADMIN_LASTNAME: ${PS_ADMIN_LASTNAME:-Shop}
+      PS_ADMIN_EMAIL: ${PS_ADMIN_EMAIL:?Set PS_ADMIN_EMAIL in .env}
+      PS_ADMIN_PASSWORD: ${PS_ADMIN_PASSWORD:?Set PS_ADMIN_PASSWORD in .env}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+    volumes: *ps-volumes
+    entrypoint: ["sh", "/usr/local/share/stack/scripts/setup.sh"]
+    restart: "no"
+
+  # Optional (profile "backup"): DB dump + shop files every
+  # BACKUP_INTERVAL_HOURS, kept BACKUP_KEEP_DAYS days in the `backups` volume
+  # (overrides/local-dirs.yaml puts them in a local directory instead).
+  backup:
+    image: mariadb:${MARIADB_VERSION:-12.3}
+    profiles: ["backup"]
+    restart: unless-stopped
+    logging: *logging
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    environment:
+      DB_HOST: db
+      DB_NAME: ${DB_NAME:-prestashop}
+      DB_USER: ${DB_USER:-prestashop}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-7}
+    volumes:
+      # Read-write so `backup.sh restore` can put the shop files back.
+      - ps_data:/var/www/html
+      - backups:/backups
+      - ./scripts/backup.sh:/usr/local/bin/backup.sh:ro
+    entrypoint: ["bash", "/usr/local/bin/backup.sh"]
+    healthcheck:
+      test: ["CMD", "bash", "/usr/local/bin/backup.sh", "health"]
+      interval: 5m
+      timeout: 10s
+      retries: 3
+      start_period: 5m
+    deploy:
+      resources:
+        limits:
+          memory: ${BACKUP_MEMORY_LIMIT:-512m}
+
+  # Optional (profile "mailpit", development): catches all outgoing mail.
+  # Set SMTP_HOST=mailpit and SMTP_PORT=1025; web UI on MAILPIT_PORT.
+  mailpit:
+    image: axllent/mailpit:${MAILPIT_VERSION:-v1.31}
+    profiles: ["mailpit"]
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+    ports:
+      - "${HTTP_BIND:-127.0.0.1}:${MAILPIT_PORT:-8025}:8025"
+
+  # PrestaShop's console (profile "tools"), as www-data, e.g.:
+  #   docker compose run --rm console prestashop:module list
+  console:
+    <<: *ps-image
+    profiles: ["tools"]
+    depends_on:
+      prestashop:
+        condition: service_healthy
+    environment:
+      <<: *ps-env
+      # Production environment for the console (PrestaShop defaults to "dev").
+      SYMFONY_ENV: prod
+      SYMFONY_DEBUG: "0"
+    volumes: *ps-volumes
+    user: www-data
+    entrypoint: ["php", "bin/console"]
+    command: ["list", "prestashop"]
+
+volumes:
+  db_data:
+  ps_data:
+  caddy_data:
+  caddy_config:
+  backups:

@@ -1,0 +1,118 @@
+# Caddy in front of the PrestaShop PHP-FPM container.
+# Translated from PrestaShop's nginx configuration:
+# https://devdocs.prestashop-project.org/9/basics/installation/advanced/nginx/
+{
+	# No admin API: config is static, reloads happen by restarting the container.
+	admin off
+
+	servers {
+		# Behind a reverse proxy on a private network, log the real client IP
+		# (X-Forwarded-For) and trust X-Forwarded-Proto for HTTPS detection.
+		trusted_proxies static private_ranges
+	}
+}
+
+(prestashop) {
+	root * /var/www/html
+	encode zstd gzip
+
+	# Same variable as upload_max_filesize/post_max_size in config/php/php.ini.
+	request_body {
+		max_size {$UPLOAD_MAX_SIZE}
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options SAMEORIGIN
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+
+	# `route` keeps the rules in the order written below.
+	route {
+		# Hide dotfiles (.htaccess, .env, .git, ...), except .well-known.
+		@hidden {
+			path /.*
+			not path /.well-known/*
+		}
+		respond @hidden 403
+
+		# Source code directories and sensitive files.
+		@source path_regexp ^/(app|bin|cache|classes|config|controllers|docs|localization|override|src|tests|tools|translations|var|vendor)/
+		respond @source 403
+		@module_vendor path_regexp ^/modules/.*/vendor/
+		respond @module_vendor 403
+		@sensitive path_regexp \.(log|tpl|twig|sass|yml)$
+		respond @sensitive 403
+		@repository_files path /composer.json /composer.lock /Makefile /INSTALL.txt /LICENSES /*.md /*.dist
+		respond @repository_files 403
+
+		# No PHP execution from media and upload directories.
+		@media_php path_regexp ^/(img|upload)/.*\.php$
+		respond @media_php 403
+
+		# Friendly image URLs: /123-home_default/name.jpg -> /img/p/1/2/3/123-home_default.jpg
+		@p1 path_regexp p1 ^/(\d)(-[\w-]*)?/.+\.(jpe?g|png|webp|avif)$
+		rewrite @p1 /img/p/{re.p1.1}/{re.p1.1}{re.p1.2}.{re.p1.3}
+		@p2 path_regexp p2 ^/(\d)(\d)(-[\w-]*)?/.+\.(jpe?g|png|webp|avif)$
+		rewrite @p2 /img/p/{re.p2.1}/{re.p2.2}/{re.p2.1}{re.p2.2}{re.p2.3}.{re.p2.4}
+		@p3 path_regexp p3 ^/(\d)(\d)(\d)(-[\w-]*)?/.+\.(jpe?g|png|webp|avif)$
+		rewrite @p3 /img/p/{re.p3.1}/{re.p3.2}/{re.p3.3}/{re.p3.1}{re.p3.2}{re.p3.3}{re.p3.4}.{re.p3.5}
+		@p4 path_regexp p4 ^/(\d)(\d)(\d)(\d)(-[\w-]*)?/.+\.(jpe?g|png|webp|avif)$
+		rewrite @p4 /img/p/{re.p4.1}/{re.p4.2}/{re.p4.3}/{re.p4.4}/{re.p4.1}{re.p4.2}{re.p4.3}{re.p4.4}{re.p4.5}.{re.p4.6}
+		@p5 path_regexp p5 ^/(\d)(\d)(\d)(\d)(\d)(-[\w-]*)?/.+\.(jpe?g|png|webp|avif)$
+		rewrite @p5 /img/p/{re.p5.1}/{re.p5.2}/{re.p5.3}/{re.p5.4}/{re.p5.5}/{re.p5.1}{re.p5.2}{re.p5.3}{re.p5.4}{re.p5.5}{re.p5.6}.{re.p5.7}
+		@p6 path_regexp p6 ^/(\d)(\d)(\d)(\d)(\d)(\d)(-[\w-]*)?/.+\.(jpe?g|png|webp|avif)$
+		rewrite @p6 /img/p/{re.p6.1}/{re.p6.2}/{re.p6.3}/{re.p6.4}/{re.p6.5}/{re.p6.6}/{re.p6.1}{re.p6.2}{re.p6.3}{re.p6.4}{re.p6.5}{re.p6.6}{re.p6.7}.{re.p6.8}
+		@p7 path_regexp p7 ^/(\d)(\d)(\d)(\d)(\d)(\d)(\d)(-[\w-]*)?/.+\.(jpe?g|png|webp|avif)$
+		rewrite @p7 /img/p/{re.p7.1}/{re.p7.2}/{re.p7.3}/{re.p7.4}/{re.p7.5}/{re.p7.6}/{re.p7.7}/{re.p7.1}{re.p7.2}{re.p7.3}{re.p7.4}{re.p7.5}{re.p7.6}{re.p7.7}{re.p7.8}.{re.p7.9}
+		@p8 path_regexp p8 ^/(\d)(\d)(\d)(\d)(\d)(\d)(\d)(\d)(-[\w-]*)?/.+\.(jpe?g|png|webp|avif)$
+		rewrite @p8 /img/p/{re.p8.1}/{re.p8.2}/{re.p8.3}/{re.p8.4}/{re.p8.5}/{re.p8.6}/{re.p8.7}/{re.p8.8}/{re.p8.1}{re.p8.2}{re.p8.3}{re.p8.4}{re.p8.5}{re.p8.6}{re.p8.7}{re.p8.8}{re.p8.9}.{re.p8.10}
+		@category_image path_regexp category_image ^/c/([\d]+)(|_thumb)(-[.*\w-]*)/.+\.(jpe?g|png|webp|avif)$
+		rewrite @category_image /img/c/{re.category_image.1}{re.category_image.2}{re.category_image.3}.{re.category_image.4}
+		@category_image_name path_regexp category_image_name ^/c/([a-zA-Z_-]+)(|_thumb)(-[\d]+)?/.+\.(jpe?g|png|webp|avif)$
+		rewrite @category_image_name /img/c/{re.category_image_name.1}{re.category_image_name.2}{re.category_image_name.3}.{re.category_image_name.4}
+
+		# Webservice API.
+		@api path_regexp api ^/api(?:/(.*))?$
+		rewrite @api /webservice/dispatcher.php?url={re.api.1}&{query}
+
+		# Uploaded files are served by the front controller, never directly.
+		@upload path_regexp ^/upload/.+$
+		rewrite @upload /index.php?{query}
+
+		# Back office and admin API have their own front controllers.
+		redir /{$PS_FOLDER_ADMIN} /{$PS_FOLDER_ADMIN}/ 308
+		@admin path /{$PS_FOLDER_ADMIN}/*
+		php_fastcgi @admin prestashop:9000 {
+			try_files {path} {path}/index.php /{$PS_FOLDER_ADMIN}/index.php
+		}
+		@admin_api path /admin-api/*
+		php_fastcgi @admin_api prestashop:9000 {
+			try_files {path} {path}/index.php /admin-api/index.php
+		}
+
+		# Everything else: existing .php files, or the front controller.
+		php_fastcgi prestashop:9000
+
+		@static path *.css *.js *.mjs *.gif *.ico *.jpg *.jpeg *.png *.svg *.webp *.avif *.woff *.woff2 *.ttf *.eot
+		header @static Cache-Control "public, max-age=604800"
+		file_server
+	}
+}
+
+# Public site. SITE_ADDRESS is ":80" for plain HTTP (local, or behind another
+# proxy) or a domain name, which makes Caddy obtain and renew a certificate
+# automatically ("localhost" uses Caddy's internal CA).
+{$SITE_ADDRESS} {
+	import prestashop
+	log {
+		output stdout
+	}
+}
+
+# Internal-only site (port not published) for the container healthcheck, so it
+# works whatever SITE_ADDRESS is.
+:8080 {
+	import prestashop
+}
