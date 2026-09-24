@@ -9,6 +9,8 @@
 		# Behind a reverse proxy on a private network, log the real client IP
 		# (X-Forwarded-For) and trust X-Forwarded-Proto for HTTPS detection.
 		trusted_proxies static private_ranges
+		# Client IP = the right-most untrusted address (can't be spoofed).
+		trusted_proxies_strict
 	}
 }
 
@@ -84,16 +86,21 @@
 		# Back office and admin API have their own front controllers.
 		redir /{$PS_FOLDER_ADMIN} /{$PS_FOLDER_ADMIN}/ 308
 		@admin path /{$PS_FOLDER_ADMIN}/*
+		# PHP's REMOTE_ADDR is the client, not the proxy in front (e.g. Traefik).
 		php_fastcgi @admin prestashop:9000 {
+			env REMOTE_ADDR {client_ip}
 			try_files {path} {path}/index.php /{$PS_FOLDER_ADMIN}/index.php
 		}
 		@admin_api path /admin-api/*
 		php_fastcgi @admin_api prestashop:9000 {
+			env REMOTE_ADDR {client_ip}
 			try_files {path} {path}/index.php /admin-api/index.php
 		}
 
 		# Everything else: existing .php files, or the front controller.
-		php_fastcgi prestashop:9000
+		php_fastcgi prestashop:9000 {
+			env REMOTE_ADDR {client_ip}
+		}
 
 		@static path *.css *.js *.mjs *.gif *.ico *.jpg *.jpeg *.png *.svg *.webp *.avif *.woff *.woff2 *.ttf *.eot
 		header @static Cache-Control "public, max-age=604800"
