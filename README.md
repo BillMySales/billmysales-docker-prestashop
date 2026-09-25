@@ -16,10 +16,13 @@ Why an own image: the vendor image (`prestashop/prestashop`) is built on an
 old PHP base (8.5.0 at the time of writing, 10 patch releases behind) and is
 1.7 GB. `image/Dockerfile` follows the vendor's recipe
 ([PrestaShop/docker](https://github.com/PrestaShop/docker)) on the official
-`php:<ver>-fpm-alpine` image: current PHP, 512 MB, and the official
+`php:<ver>-fpm-alpine` image: current PHP, 542 MB, and the official
 [PrestaShop Classic](https://github.com/PrestaShopCorp/prestashop-classic)
 distribution zip, verified with SHA-256. PHP 8.5 is PrestaShop 9.1's
-recommended version.
+recommended version. The image adds `icu-data-full` (Alpine's ICU has
+English locale data only, unlike the vendor's Debian image): the back
+office's Symfony number, money and date fields follow the employee's
+language (`9.990,50` in Spanish, not `9,990.50`).
 
 Requirements
 ------------

@@ -11,7 +11,11 @@ FROM php:${PHP_VERSION}-fpm-alpine
 # PHP extensions required by PrestaShop 9 (curl, dom, fileinfo, iconv, json,
 # mbstring, openssl, simplexml and opcache are already in the base image).
 RUN set -eux; \
-    apk add --no-cache su-exec; \
+    # icu-data-full: locale data for intl (Alpine ships English only): the
+    # back office's Symfony number, money and date fields follow the
+    # employee's language (es: "9.990,50", not "9,990.50"). Prices use
+    # PrestaShop's own CLDR data.
+    apk add --no-cache su-exec icu-data-full; \
     apk add --no-cache --virtual .build-deps \
         $PHPIZE_DEPS freetype-dev icu-dev libjpeg-turbo-dev libpng-dev \
         libwebp-dev libxml2-dev libzip-dev; \
