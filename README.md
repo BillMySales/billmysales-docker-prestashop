@@ -90,12 +90,15 @@ the host's cron with `docker compose exec prestashop php <script>`.
 - If the shop isn't installed: runs the official CLI installer (no demo
   products) with `PS_LANGUAGE`, `PS_COUNTRY`, `PS_TIMEZONE` and `PS_SHOP_NAME`,
   then deletes the `install` directory.
-- Renames the back office directory to `PS_FOLDER_ADMIN` (change it any time).
+- Renames the back office directory to `PS_FOLDER_ADMIN` (the 9.x installer
+  gives it a random name; change it any time).
 - On every run, sets the shop domain and SSL from `PS_URL` and, when
   `SMTP_HOST` is set, the SMTP settings from `SMTP_*` (`scripts/configure.php`).
 - Applies one-time initial settings (friendly URLs) and stores
   `DOCKER_STACK_INITIALIZED`; later changes in the back office are kept.
 - Clears the cache only when something changed.
+- `setup` waits for PHP-FPM, not for Caddy: the shop files don't exist until
+  `setup` copies them.
 
 Common commands
 ---------------
@@ -109,6 +112,8 @@ docker compose exec db mariadb -u prestashop -p prestashop   # SQL shell
 docker compose down                                # stop, keep data
 docker compose down -v                             # stop and DELETE all data
 ```
+
+`bin/console` (the `console` service) writes its output to stderr.
 
 Backups
 -------
@@ -191,12 +196,17 @@ Notes:
 - `PS_VERSION` only matters when the `ps_data` volume is created; afterwards
   PrestaShop is upgraded from the back office (the Update Assistant module).
   Rebuilding the image with a new `PHP_VERSION` updates PHP for an existing shop.
+- `PS_VERSION` is a Classic distribution tag, `<core>-<distribution>` (e.g.
+  `9.1.5-5.0`): PrestaShop 9 core releases have no zip. The Classic 5.0
+  distribution installs the `hummingbird` theme.
 - The shop domain and SSL come from `PS_URL`: changing the domain or port only
   needs `docker compose up -d`.
 - `.htaccess` files are ignored; the equivalent rules (friendly image URLs,
   webservice API, uploads through the front controller, back office routing,
   blocked directories) are in the Caddyfile, translated from PrestaShop's
-  official nginx configuration.
+  official nginx configuration plus the rules of `Tools::generateHtaccess()`;
+  it also blocks repository files (`composer.lock`, `*.md`, ...) that the
+  nginx configuration doesn't.
 - From inside the containers, the host machine is reachable as
   `host.docker.internal`.
 
@@ -242,6 +252,14 @@ What was checked for this stack (2026-09-24):
 - Overrides: Traefik v3.6 routing with no host ports and HTTPS links, local
   directories (including backups), a module mounted, installed and served.
 - Not tested: issuing a real Let's Encrypt certificate (needs a public domain).
+
+Testing
+-------
+
+Back office login with curl (PrestaShop 9): GET
+`/<PS_FOLDER_ADMIN>/index.php/login` for the form's `_token`, then POST
+`email`, `passwd` and `_token` (keeping the cookies); every later back office
+URL needs the `_token` query parameter.
 
 Resource usage
 --------------
