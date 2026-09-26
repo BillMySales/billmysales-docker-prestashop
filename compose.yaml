@@ -47,6 +47,13 @@ x-ps-volumes: &ps-volumes
   - ./config/prestashop:/usr/local/share/stack/prestashop:ro
   - ./scripts:/usr/local/share/stack/scripts:ro
 
+# Lets PrestaShop reach services on the host (e.g. an app running locally)
+# at http://host.docker.internal:<port>, also on Linux.
+# Every container that runs the platform's code: its web process, setup,
+# cron, workers, the console (Docker Desktop resolves it anyway).
+x-host-access: &host-access
+  - "host.docker.internal:host-gateway"
+
 services:
   db:
     image: mariadb:${MARIADB_VERSION:-12.3}
@@ -85,10 +92,7 @@ services:
       PHP_FPM_MIN_SPARE_SERVERS: ${PHP_FPM_MIN_SPARE_SERVERS:-1}
       PHP_FPM_MAX_SPARE_SERVERS: ${PHP_FPM_MAX_SPARE_SERVERS:-4}
       PHP_FPM_MAX_REQUESTS: ${PHP_FPM_MAX_REQUESTS:-500}
-    # Lets PrestaShop reach services on the host (e.g. an app running locally)
-    # at http://host.docker.internal:<port>, also on Linux.
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    extra_hosts: *host-access
     volumes:
       - ps_data:/var/www/html
       - ./config/php/php.ini:/usr/local/etc/php/conf.d/zz-stack.ini:ro
@@ -170,6 +174,7 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-}
+    extra_hosts: *host-access
     volumes: *ps-volumes
     entrypoint: ["sh", "/usr/local/share/stack/scripts/setup.sh"]
     restart: "no"
@@ -235,6 +240,7 @@ services:
       # Production environment for the console (PrestaShop defaults to "dev").
       SYMFONY_ENV: prod
       SYMFONY_DEBUG: "0"
+    extra_hosts: *host-access
     volumes: *ps-volumes
     user: www-data
     entrypoint: ["php", "bin/console"]
