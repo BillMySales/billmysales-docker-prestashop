@@ -52,7 +52,8 @@ Production
 ```shell
 cp .env.prod.example .env
 # Fill in PS_URL, SITE_ADDRESS, DB_PASSWORD, DB_ROOT_PASSWORD,
-# PS_ADMIN_EMAIL, PS_ADMIN_PASSWORD, PS_FOLDER_ADMIN and the SMTP_* values.
+# PS_ADMIN_EMAIL, PS_ADMIN_PASSWORD and PS_FOLDER_ADMIN.
+# Recommended: the SMTP_* values (without SMTP_HOST no emails are sent).
 docker compose up -d
 ```
 
@@ -61,6 +62,8 @@ docker compose up -d
 - Behind an existing Traefik (no host ports), use `overrides/traefik.yaml`
   (see [Overrides](#overrides)).
 - Compose refuses to start while a required value is missing.
+- Configure SMTP (recommended, not required): without `SMTP_HOST` no emails
+  are sent (the image has no local mail server).
 - Use a hard-to-guess back office directory (`PS_FOLDER_ADMIN`).
 - The `backup` profile is enabled by default in the production template.
 
@@ -167,7 +170,9 @@ Every variable is documented in `.env.prod.example`. Main groups:
 - **Site and network**: `PS_URL`, `SITE_ADDRESS`, `HTTP_BIND`, `HTTP_PORT`,
   `HTTPS_PORT`.
 - **Credentials and back office**: `DB_PASSWORD`, `DB_ROOT_PASSWORD`,
-  `PS_ADMIN_EMAIL`, `PS_ADMIN_PASSWORD`, `PS_FOLDER_ADMIN` (required).
+  `PS_ADMIN_EMAIL`, `PS_ADMIN_PASSWORD`, `PS_FOLDER_ADMIN` (required). The
+  `PS_ADMIN_*` values are only used by the installer: changing them later
+  doesn't change the account.
 - **Shop** (first install only): `PS_SHOP_NAME`, `PS_LANGUAGE`, `PS_COUNTRY`,
   `PS_TIMEZONE`.
 - **Versions**: `PS_VERSION` + `PS_SHA256` (Classic distribution), `PHP_VERSION`,
