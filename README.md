@@ -24,6 +24,33 @@ English locale data only, unlike the vendor's Debian image): the back
 office's Symfony number, money and date fields follow the employee's
 language (`9.990,50` in Spanish, not `9,990.50`).
 
+Supported versions
+------------------
+
+Only these combinations are supported: each one was validated with a fresh
+install, a second `up -d` (`setup` safe to repeat), the front and back
+office pages loading all their CSS/JS/images, and no PHP errors after start
+(2026-09-28). Other combinations may work by changing the variables, but
+aren't validated.
+
+| PrestaShop (`PS_VERSION`) | PHP (`PHP_VERSION`) | PHP range PrestaShop documents |
+|---------------------------|---------------------|--------------------------------|
+| 8.2.8                     | 7.4 and 8.1         | 7.2 to 8.1 (8.1 recommended)   |
+| 9.1.5-5.0 (default)       | 8.1 and 8.5         | 8.1 to 8.5 (8.5 recommended)   |
+
+PrestaShop 9.0 is not listed: its Classic distribution (9.0.3-3.0) bundles
+`psshipping` 2.0.9 (PrestaShop Shipping), and with it active the storefront
+checkout answers HTTP 400 once the back office has been opened (the 8.2 and
+9.1 distributions bundle other versions of it, which work).
+
+Changing `PHP_VERSION` on an existing shop (rebuild and `up -d`) was also
+checked on the 8.2 row (8.1 to 7.4). `PS_VERSION` only applies to a new
+`ps_data` volume: PrestaShop is upgraded from the back office.
+
+Set `PS_SHA256` to the zip's checksum, or to an empty value to skip the
+check, for a version other than the default. The 8.2 line is the only 8.x
+branch still maintained; the Classic distribution starts at 8.2.7.
+
 Requirements
 ------------
 
@@ -204,6 +231,14 @@ Notes:
 - `PS_VERSION` is a Classic distribution tag, `<core>-<distribution>` (e.g.
   `9.1.5-5.0`): PrestaShop 9 core releases have no zip. The Classic 5.0
   distribution installs the `hummingbird` theme.
+- On the very first start the log of `prestashop` shows a PHP fatal about
+  a missing `vendor/autoload.php`: Caddy's healthcheck requests the shop
+  while `setup` is still copying the files (Caddy doesn't wait for `setup`).
+  It stops once the copy ends; nothing to fix.
+- PrestaShop 8's CLI installer leaves the shop in maintenance mode (its
+  configuration data has `PS_SHOP_ENABLE = 0`, and the CLI has no option for
+  it): the first `setup` run enables it (initial settings, kept afterwards),
+  so a merchant can turn maintenance mode on again from the back office.
 - The shop domain and SSL come from `PS_URL`: changing the domain or port only
   needs `docker compose up -d`.
 - `.htaccess` files are ignored; the equivalent rules (friendly image URLs,

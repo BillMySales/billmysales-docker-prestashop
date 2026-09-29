@@ -69,6 +69,10 @@ if (getenv('SMTP_HOST')) {
 if (!Configuration::get('DOCKER_STACK_INITIALIZED')) {
     echo "==> Initial settings\n";
     $set('PS_REWRITING_SETTINGS', 1);
+    // The 8.x CLI installer leaves the shop in maintenance mode (its
+    // configuration data has PS_SHOP_ENABLE = 0 and the CLI has no option
+    // for it); 9.x already installs it enabled.
+    $set('PS_SHOP_ENABLE', 1);
     $set('DOCKER_STACK_INITIALIZED', gmdate('Y-m-d\TH:i:s\Z'));
 }
 
