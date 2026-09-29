@@ -29,8 +29,8 @@ Supported versions
 
 Only these combinations are supported: each one was validated with a fresh
 install, a second `up -d` (`setup` safe to repeat), the front and back
-office pages loading all their CSS/JS/images, and no PHP errors after start
-(2026-09-28). Other combinations may work by changing the variables, but
+office pages loading all their CSS/JS/images, and no PHP errors after start.
+Other combinations may work by changing the variables, but
 aren't validated.
 
 | PrestaShop (`PS_VERSION`) | PHP (`PHP_VERSION`) | PHP range PrestaShop documents |
@@ -277,7 +277,7 @@ Security
 Validation
 ----------
 
-What was checked for this stack (2026-09-24):
+What was checked for this stack:
 
 - Clean start (`down -v` + `up -d`, image already built) in about 50 s: every
   service `healthy`, `setup` `Exited (0)`; a second run makes no changes.
